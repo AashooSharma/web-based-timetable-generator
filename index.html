@@ -1,1 +1,288 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Advanced Timetable to ICS Generator</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background: #f3f3ff;
+            padding: 20px;
+        }
+        .event-box {
+            background: white;
+            padding: 15px;
+            margin-bottom: 12px;
+            border-radius: 10px;
+            box-shadow: 0 0 6px rgba(0,0,0,0.15);
+        }
+        input, textarea {
+            width: 95%;
+            padding: 10px;
+            margin: 5px 0 10px;
+            border-radius: 6px;
+            border: 1px solid #bbb;
+        }
+        button {
+            padding: 12px 25px;
+            border: none;
+            border-radius: 8px;
+            background: #6c63ff;
+            color: white;
+            font-size: 16px;
+            cursor: pointer;
+        }
+        button:hover { background: #5148f5; }
 
+        .popup {
+            background: #ff4747;
+            color: white;
+            padding: 12px;
+            border-radius: 6px;
+            margin-bottom: 12px;
+            display: none;
+        }
+        .success {
+            background: #4CAF50;
+            color: white;
+        }
+    </style>
+</head>
+<body>
+
+<h2>Advanced Timetable (.ICS File Generator)</h2>
+
+<div id="popupBox" class="popup"></div>
+
+<div id="events"></div>
+
+<button onclick="addEventBox()">+ Add Exam</button>
+<button onclick="resetAll()" style="background:#ff3b3b; margin-left:10px;">Reset Timetable</button>
+<button onclick="exportPDF()" style="margin-left:10px; background:#FFA500;">Export PDF</button>
+<button onclick="exportCSV()" style="margin-left:10px; background:#008CBA;">CSV</button>
+<button onclick="window.print()" style="margin-left:10px; background:#444;">Print</button>
+
+<br><br>
+<button onclick="generateICS()">Generate .ICS File</button>
+
+<script>
+
+// ---------- AUTO DAY DETECTION ----------
+function getDayName(dateStr) {
+    const date = new Date(dateStr);
+    return date.toLocaleDateString("en-US", { weekday: "long" });
+}
+
+// ---------- EVENT BOX CREATOR ----------
+function addEventBox(data = null) {
+    const count = document.querySelectorAll(".event-box").length;
+    const newNum = count + 1;
+
+    let box = document.createElement("div");
+    box.className = "event-box";
+
+    box.innerHTML = `
+        <h3>Exam ${newNum}</h3>
+
+        <label>Date*:</label>
+        <input type="date" class="date" required onchange="autoDay(this)">
+
+        <label>Day*:</label>
+        <input type="text" class="day" required readonly>
+
+        <label>Start Time*:</label>
+        <input type="time" class="start" required>
+
+        <label>End Time*:</label>
+        <input type="time" class="end" required>
+
+        <label>Subject Code*:</label>
+        <input type="text" class="code" placeholder="e.g., 5CS4-23" required>
+
+        <label>Subject Name*:</label>
+        <input type="text" class="sub" placeholder="e.g., AOA Lab" required>
+
+        <label>Faculty*:</label>
+        <input type="text" class="faculty" placeholder="e.g., SP" required>
+
+        <label>Room No:</label>
+        <input type="text" class="room" placeholder="e.g., 1202">
+
+        <label>Description:</label>
+        <textarea class="desc" rows="3"></textarea>
+
+        <button onclick="deleteEvent(this)" style="background:red;">Delete</button>
+    `;
+
+    document.getElementById("events").appendChild(box);
+    renumberEvents();
+
+    if (data) loadDataIntoBox(box, data);
+    saveToLocal();
+}
+
+// Fill old saved data
+function loadDataIntoBox(box, data) {
+    box.querySelector(".date").value = data.date;
+    box.querySelector(".day").value = data.day;
+    box.querySelector(".start").value = data.start;
+    box.querySelector(".end").value = data.end;
+    box.querySelector(".code").value = data.code;
+    box.querySelector(".sub").value = data.subject;
+    box.querySelector(".faculty").value = data.faculty;
+    box.querySelector(".room").value = data.room;
+    box.querySelector(".desc").value = data.desc;
+}
+
+function deleteEvent(btn) {
+    btn.parentElement.remove();
+    renumberEvents();
+    saveToLocal();
+}
+
+function renumberEvents() {
+    const boxes = document.querySelectorAll(".event-box h3");
+    let num = 1;
+    boxes.forEach(h3 => {
+        h3.innerText = "Exam " + num;
+        num++;
+    });
+}
+
+function autoDay(input) {
+    const day = getDayName(input.value);
+    input.parentElement.querySelector(".day").value = day;
+    saveToLocal();
+}
+
+// ---------- LOCAL STORAGE SAVE ----------
+function saveToLocal() {
+    let all = [];
+    document.querySelectorAll(".event-box").forEach(box => {
+        all.push({
+            date: box.querySelector(".date").value,
+            day: box.querySelector(".day").value,
+            start: box.querySelector(".start").value,
+            end: box.querySelector(".end").value,
+            code: box.querySelector(".code").value,
+            subject: box.querySelector(".sub").value,
+            faculty: box.querySelector(".faculty").value,
+            room: box.querySelector(".room").value,
+            desc: box.querySelector(".desc").value
+        });
+    });
+    localStorage.setItem("timetable", JSON.stringify(all));
+}
+
+// ---------- LOAD DATA ON START ----------
+function loadFromLocal() {
+    const saved = localStorage.getItem("timetable");
+    if (!saved) { addEventBox(); return; }
+    const events = JSON.parse(saved);
+    events.forEach(e => addEventBox(e));
+}
+
+// ---------- RESET ----------
+function resetAll() {
+    localStorage.removeItem("timetable");
+    document.getElementById("events").innerHTML = "";
+    addEventBox();
+    showPopup("Timetable Reset Successfully!", true);
+}
+
+// ---------- POPUP ----------
+function showPopup(msg, success = false) {
+    let box = document.getElementById("popupBox");
+    box.style.display = "block";
+    box.className = success ? "popup success" : "popup";
+    box.innerText = msg;
+    setTimeout(() => { box.style.display = "none"; }, 3000);
+}
+
+// ---------- ICS GENERATOR ----------
+function toICSDate(date, time) {
+    return date.replace(/-/g, "") + "T" + time.replace(":", "") + "00";
+}
+
+function generateICS() {
+    let ics = "BEGIN:VCALENDAR\nVERSION:2.0\n";
+
+    const boxes = document.querySelectorAll(".event-box");
+    let index = 1;
+
+    for (let box of boxes) {
+        let dt = box.querySelector(".date").value;
+        let start = box.querySelector(".start").value;
+        let end = box.querySelector(".end").value;
+
+        if (!dt || !start || !end) {
+            showPopup(`Exam ${index}: Missing Required Fields!`);
+            return;
+        }
+        if (end <= start) {
+            showPopup(`Exam ${index}: End time must be greater than start time!`);
+            return;
+        }
+
+        let day = box.querySelector(".day").value;
+        let code = box.querySelector(".code").value;
+        let subject = box.querySelector(".sub").value;
+        let faculty = box.querySelector(".faculty").value;
+        let room = box.querySelector(".room").value;
+        let desc = box.querySelector(".desc").value;
+
+        ics += `
+BEGIN:VEVENT
+DTSTART:${toICSDate(dt, start)}
+DTEND:${toICSDate(dt, end)}
+SUMMARY:${code} - ${subject}
+DESCRIPTION:Day: ${day}\\nFaculty: ${faculty}\\n${desc}
+LOCATION:${room}
+END:VEVENT
+`;
+        index++;
+    }
+
+    ics += "\nEND:VCALENDAR";
+
+    const blob = new Blob([ics], { type: "text/calendar" });
+    const url = URL.createObjectURL(blob);
+
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "Advanced_Timetable.ics";
+    a.click();
+
+    showPopup("ICS File Generated Successfully!", true);
+}
+
+// ---------- CSV EXPORT ----------
+function exportCSV() {
+    let rows = [["Date","Day","Start","End","Code","Subject","Faculty","Room","Desc"]];
+    document.querySelectorAll(".event-box").forEach(box => {
+        rows.push([
+            box.querySelector(".date").value,
+            box.querySelector(".day").value,
+            box.querySelector(".start").value,
+            box.querySelector(".end").value,
+            box.querySelector(".code").value,
+            box.querySelector(".sub").value,
+            box.querySelector(".faculty").value,
+            box.querySelector(".room").value,
+            box.querySelector(".desc").value
+        ]);
+    });
+
+    let csv = rows.map(r=>r.join(",")).join("\n");
+    let blob = new Blob([csv], { type:"text/csv" });
+    let a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "Timetable.csv";
+    a.click();
+}
+
+loadFromLocal();
+
+</script>
+
+</body>
+</html>
